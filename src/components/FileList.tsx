@@ -1,8 +1,9 @@
 /**
  * FileList 组件 — 紧凑版，独立下载和复制，更明晰的大小对比
  */
-import { Button, Tooltip } from "@heroui/react"
+import { Button, Modal } from "@heroui/react"
 import { AnimatePresence, motion } from "framer-motion"
+import { useState } from "react"
 import type { CompressedFile } from "../hooks/useCompressor"
 import { formatFileSize } from "../hooks/useCompressor"
 
@@ -23,6 +24,8 @@ export function FileList({
     onRetry,
     onPreview,
 }: FileListProps) {
+    const [selectedErrorFile, setSelectedErrorFile] = useState<CompressedFile | null>(null)
+
     if (files.length === 0) return null
 
     return (
@@ -59,7 +62,7 @@ export function FileList({
                                 >
                                     {/* 文件名 & 格式 (左侧) */}
                                     <div
-                                        className="flex items-center gap-3 min-w-0 flex-1 basis-full sm:basis-auto cursor-pointer"
+                                        className="flex items-center gap-3 min-w-0 w-full sm:w-[40%] md:w-[45%] lg:w-[50%] flex-shrink-0 cursor-pointer"
                                         onClick={() => file.status === "done" && onPreview(file)}
                                         title={file.status === "done" ? "点击对比预览" : file.name}
                                     >
@@ -89,10 +92,10 @@ export function FileList({
                                     {/* 数据指标 & 操作 (右/下侧) */}
                                     <div className={`flex items-center flex-1 w-full gap-4 mt-1 sm:mt-0 ${showThumbnails ? 'sm:pl-[44px]' : 'sm:pl-0'}`}>
 
-                                        {/* 体积：靠左紧凑 */}
-                                        <div className="flex items-center justify-start font-mono text-sm w-auto flex-shrink-0">
+                                        {/* 体积：紧凑对齐 */}
+                                        <div className="flex items-center justify-start font-mono text-sm w-32 flex-shrink-0">
                                             {file.status === "pending" || file.status === "compressing" ? (
-                                                <span className="text-indigo-500 dark:text-indigo-400 text-[13px] flex items-center gap-1.5">
+                                                <span className="text-indigo-500 dark:text-indigo-400 text-[13px] flex items-center gap-1.5 w-full">
                                                     <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
                                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
                                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
@@ -100,29 +103,25 @@ export function FileList({
                                                     处理中...
                                                 </span>
                                             ) : file.status === "error" ? (
-                                                <Tooltip>
-                                                    <Tooltip.Trigger>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="sm"
-                                                            className="h-auto min-w-0 p-0 m-0 bg-transparent flex items-center justify-center hover:bg-transparent data-[hover=true]:bg-transparent"
-                                                        >
-                                                            <span className="text-red-400 text-[13px] italic cursor-help border-b border-dashed border-red-400/50">
-                                                                压缩异常
-                                                            </span>
-                                                        </Button>
-                                                    </Tooltip.Trigger>
-                                                    <Tooltip.Content placement="top" showArrow className="bg-red-50 text-red-600 dark:bg-red-900/40 dark:text-red-300">
-                                                        <div className="px-1 py-0.5">{file.error || "未知异常"}</div>
-                                                    </Tooltip.Content>
-                                                </Tooltip>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-auto min-w-0 p-0 m-0 bg-transparent flex items-center justify-center hover:bg-transparent data-[hover=true]:bg-transparent"
+                                                    onPress={() => {
+                                                        setSelectedErrorFile(file)
+                                                    }}
+                                                >
+                                                    <span className="text-red-400 text-[13px] italic cursor-pointer border-b border-dashed border-red-400/50">
+                                                        查看异常原因
+                                                    </span>
+                                                </Button>
                                             ) : (
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[12px] text-gray-400 dark:text-gray-500 line-through decoration-gray-300 dark:decoration-gray-600 whitespace-nowrap leading-none">
+                                                <div className="flex items-center w-full">
+                                                    <span className="text-[12px] text-gray-400 dark:text-gray-500 line-through decoration-gray-300 dark:decoration-gray-600 whitespace-nowrap leading-none w-[60px] flex-shrink-0 text-left">
                                                         {formatFileSize(file.originalSize)}
                                                     </span>
                                                     {file.compressedSize !== null && (
-                                                        <span className="text-slate-700 dark:text-slate-200 font-medium text-[13px] whitespace-nowrap leading-none">
+                                                        <span className="text-slate-700 dark:text-slate-200 font-medium text-[13px] whitespace-nowrap leading-none w-[68px] flex-shrink-0 text-left">
                                                             {formatFileSize(file.compressedSize)}
                                                         </span>
                                                     )}
@@ -130,10 +129,19 @@ export function FileList({
                                             )}
                                         </div>
 
-                                        {/* 效率：紧跟在体积后面靠左 */}
-                                        <div className="flex items-center justify-start text-[14px] font-mono w-auto flex-shrink-0 mr-4">
+                                        {/* 效率和耗时：紧跟在体积后面 */}
+                                        <div className="flex flex-col justify-center items-start w-16 pl-1 flex-shrink-0 mr-4">
                                             {file.status === "done" && file.ratio !== null ? (
-                                                <span className={`${ratioColor} whitespace-nowrap leading-none`}>{ratioText}</span>
+                                                <>
+                                                    <span className={`text-[14px] font-mono whitespace-nowrap leading-none ${ratioColor}`}>
+                                                        {ratioText}
+                                                    </span>
+                                                    {file.time && (
+                                                        <span className="text-[10px] text-gray-400 mt-1 whitespace-nowrap leading-none">
+                                                            ⏱ {file.time >= 1000 ? (file.time / 1000).toFixed(2) + "s" : Math.round(file.time) + "ms"}
+                                                        </span>
+                                                    )}
+                                                </>
                                             ) : (
                                                 <span className="text-gray-400 text-xs leading-none">—</span>
                                             )}
@@ -202,6 +210,62 @@ export function FileList({
                     </AnimatePresence>
                 </div>
             </div>
+
+            {/* 错误详情弹窗 */}
+            <Modal.Backdrop isOpen={selectedErrorFile !== null}>
+                <Modal.Container>
+                    <Modal.Dialog className="max-w-2xl bg-white dark:bg-[#1a1b1e] text-slate-800 dark:text-slate-200">
+                        {({ close }) => (
+                            <>
+                                <Modal.Header className="flex flex-col gap-1 text-red-500 pt-5 px-6 pb-2 text-lg">
+                                    压缩失败原因分析
+                                </Modal.Header>
+                                <Modal.Body className="px-6 py-2">
+                                    {selectedErrorFile && (
+                                        <div className="space-y-4 font-mono text-sm pb-4">
+                                            <div>
+                                                <p className="font-bold mb-1 opacity-80">文件名:</p>
+                                                <p className="opacity-90 break-all">{selectedErrorFile.name}</p>
+                                            </div>
+                                            <div>
+                                                <p className="font-bold mb-1 opacity-80">错误堆栈 / 信息:</p>
+                                                <div className="w-full whitespace-pre-wrap break-all text-red-500 bg-red-50 dark:bg-red-900/20 p-3 rounded-lg border border-red-100 dark:border-red-900/30">
+                                                    {selectedErrorFile.error || "未知异常"}
+                                                </div>
+                                            </div>
+                                            {selectedErrorFile.appliedSettings && (
+                                                <div>
+                                                    <p className="font-bold mb-1 opacity-80">当时的压缩配置:</p>
+                                                    <div className="w-full whitespace-pre-wrap text-indigo-500 bg-indigo-50 dark:bg-indigo-900/20 p-3 rounded-lg border border-indigo-100 dark:border-indigo-900/30">
+                                                        {JSON.stringify(selectedErrorFile.appliedSettings, null, 2)}
+                                                    </div>
+                                                </div>
+                                            )}
+                                            <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-100 dark:border-amber-900/30">
+                                                <p className="text-amber-600 dark:text-amber-400 text-xs leading-relaxed font-sans">
+                                                    💡 提示：对于由于 JXL 引擎崩溃 或 OOM (Out Of Memory) 引发的任务流产，大多数情况是因为图片分辨率和配置过于激进（Lossless 或 Effort 设置过高）导致超出了当前 Web Worker 分配的最大堆内存上限。请尝试使用有损模式（Quality）或缩小图片体积后重试。
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                </Modal.Body>
+                                <Modal.Footer className="px-6 pb-5 pt-2">
+                                    <Button
+                                        variant="secondary"
+                                        className="bg-slate-100 hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20 text-slate-700 dark:text-slate-300"
+                                        onPress={() => {
+                                            close()
+                                            setSelectedErrorFile(null)
+                                        }}
+                                    >
+                                        关闭
+                                    </Button>
+                                </Modal.Footer>
+                            </>
+                        )}
+                    </Modal.Dialog>
+                </Modal.Container>
+            </Modal.Backdrop>
         </div>
     )
 }

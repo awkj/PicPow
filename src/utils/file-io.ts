@@ -2,6 +2,7 @@
  * 文件 I/O 工具
  * 封装 Web 和 Tauri 原生环境下的文件读写差异
  */
+import { mimeToFormat } from "../core/engine-wasm"
 import { isTauri } from "./platform"
 
 /**
@@ -96,14 +97,10 @@ export function compressionRatio(original: number, compressed: number): number {
 }
 
 /**
- * 根据 MIME 类型获取扩展名
+ * 根据 MIME 类型推断扩展名
  */
 export function mimeToExtension(mime: string): string {
-    const map: Record<string, string> = {
-        "image/jpeg": "jpg",
-        "image/png": "png",
-        "image/webp": "webp",
-        "image/avif": "avif",
-    }
-    return map[mime] ?? "jpg"
+    const format = mimeToFormat(mime)
+    if (!format) return "jpg"
+    return format === "jpeg" ? "jpg" : format
 }

@@ -5,32 +5,39 @@
 
 export type SupportedFormat = "jpeg" | "png" | "webp" | "avif" | "jxl" | "heic"
 
+import { COMPRESSION_CONFIG, type QualityLevel } from "./config"
+
+
+/** 映射源 MIME 类型到内部格式标识 */
+export const MIME_TO_FORMAT: Record<string, SupportedFormat> = {
+    "image/jpeg": "jpeg",
+    "image/jpg": "jpeg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/avif": "avif",
+    "image/jxl": "jxl",
+    "image/heic": "heic",
+    "image/heif": "heic",
+}
+
+/** 映射内部格式标识到输出 MIME 类型 */
+export const FORMAT_TO_MIME: Record<SupportedFormat, string> = {
+    jpeg: "image/jpeg",
+    png: "image/png",
+    webp: "image/webp",
+    avif: "image/avif",
+    jxl: "image/jxl",
+    heic: "image/heic",
+}
+
 /** 从 MIME 类型推断格式 */
 export function mimeToFormat(mime: string): SupportedFormat | null {
-    const map: Record<string, SupportedFormat> = {
-        "image/jpeg": "jpeg",
-        "image/jpg": "jpeg",
-        "image/png": "png",
-        "image/webp": "webp",
-        "image/avif": "avif",
-        "image/jxl": "jxl",
-        "image/heic": "heic",
-        "image/heif": "heic",
-    }
-    return map[mime.toLowerCase()] ?? null
+    return MIME_TO_FORMAT[mime.toLowerCase()] ?? null
 }
 
 /** 获取格式对应的 MIME 类型 */
 export function formatToMime(format: SupportedFormat): string {
-    const map: Record<SupportedFormat, string> = {
-        jpeg: "image/jpeg",
-        png: "image/png",
-        webp: "image/webp",
-        avif: "image/avif",
-        jxl: "image/jxl",
-        heic: "image/heic",
-    }
-    return map[format]
+    return FORMAT_TO_MIME[format]
 }
 
 /**
@@ -39,39 +46,65 @@ export function formatToMime(format: SupportedFormat): string {
  */
 export async function decodeImage(file: File): Promise<ImageData> {
     const buffer = await file.arrayBuffer()
-    const mime = file.type.toLowerCase()
+    const format = mimeToFormat(file.type)
 
-    if (mime === "image/jpeg" || mime === "image/jpg") {
+    if (format === "jpeg") {
         const { decode } = await import("@jsquash/jpeg")
         return decode(buffer)
     }
 
-    if (mime === "image/png") {
+    if (format === "png") {
         const { decode } = await import("@jsquash/png")
         return decode(buffer)
     }
 
-    if (mime === "image/webp") {
+    if (format === "webp") {
         const { decode } = await import("@jsquash/webp")
         return decode(buffer)
     }
 
-    if (mime === "image/avif") {
+    if (format === "avif") {
         const { decode } = await import("@jsquash/avif")
         const result = await decode(buffer)
         if (!result) throw new Error("AVIF decode failed")
         return result as ImageData
     }
 
-    if (mime === "image/jxl") {
+    if (format === "jxl") {
         const { decode } = await import("@jsquash/jxl")
         return decode(buffer)
     }
 
-    if (mime === "image/heic" || mime === "image/heif") {
-        // @ts-ignore jsquash heif 暂无官方 type 定义
-        const { decode } = await import("@jsquash/heif")
-        return decode(buffer)
+    if (format === "heic") {
+        // 使用 libheif-js (WASM) 纯前端解码，在 Web Worker 中无感运行
+        // @ts-ignore
+        const libheifData = await import("libheif-js/wasm-bundle")
+        const libheif = libheifData.default || libheifData
+
+        const decoder = new libheif.HeifDecoder()
+        const data = decoder.decode(buffer)
+        if (!data || !data.length) {
+            throw new Error("HEIF decoding failed: No images found in file")
+        }
+        const image = data[0]
+        const width = image.get_width()
+        const height = image.get_height()
+
+        const imageDataData = new Uint8ClampedArray(width * height * 4)
+        await new Promise<void>((resolve, reject) => {
+            image.display({ data: imageDataData, width, height }, (displayData: any) => {
+                if (!displayData) {
+                    reject(new Error("HEIF decoding failed during pixel data extraction"))
+                    return
+                }
+                resolve()
+            })
+        })
+
+        // 释放底层的 C++ 对象内存以免内存泄漏
+        image.free?.()
+
+        return new ImageData(imageDataData, width, height)
     }
 
     // 回退：使用 Canvas 解码其他格式
@@ -92,13 +125,24 @@ async function decodeWithCanvas(file: File): Promise<ImageData> {
  * @param imageData   原始像素数据
  * @param format      目标格式
  * @param quality     质量 0-100（PNG/AVIF 的无损模式下忽略此参数）
+ * @param lossless    是否使用无损模式
  */
+
+// 全局单例缓存，避免重复加载 WASM
+let jxlModuleInstance: any = null
+
 export async function encodeImage(
     imageData: ImageData,
     format: SupportedFormat,
-    quality: number,
-    lossless: boolean = false
+    qualityMode: QualityLevel
 ): Promise<ArrayBuffer> {
+    // -------------------------------------------------------------
+    // 解析 UI 语义化质量为具体数值与参数
+    // -------------------------------------------------------------
+    const config = COMPRESSION_CONFIG[format]?.[qualityMode]
+    const quality = config?.value ?? 80
+    const isLossless = config?.isLossless ?? false
+
     switch (format) {
         case "jpeg": {
             const { encode } = await import("@jsquash/jpeg")
@@ -115,96 +159,126 @@ export async function encodeImage(
 
         case "webp": {
             const { encode } = await import("@jsquash/webp")
-            if (lossless) {
+            if (isLossless) {
                 // @ts-ignore jsquash webp supports lossless flag internally
                 return encode(imageData, { lossless: true })
             }
-            // 抽象质量映射 WebP: 90->85, 80->75, 60->50
-            const q = quality >= 90 ? 85 : quality >= 80 ? 75 : 50
-            return encode(imageData, { quality: q })
+            return encode(imageData, { quality, ...(config?.extra || {}) })
         }
 
         case "avif": {
             const { encode } = await import("@jsquash/avif")
-            if (lossless) {
+            if (isLossless) {
                 // @ts-ignore jsquash avif supports lossless via cqLevel:0 or lossless:true internally
                 return encode(imageData, { lossless: true })
             }
-            // 抽象质量映射 AVIF: 90->80, 80->65, 60->45
-            const q = quality >= 90 ? 80 : quality >= 80 ? 65 : 45
-            return encode(imageData, { quality: q })
+            return encode(imageData, { quality, ...(config?.extra || { speed: 8 }) })
         }
 
         case "jxl": {
-            // 修复 JXL 多线程及内存溢出崩溃问题：
-            // 1. 强制使用单线程版 jxl_enc.js（稳定、内存可扩展），避开 jSquash 自带的多线程 SIMD 检测崩溃卡死
-            // 2. 将 ImageData 显式转化为 Uint8Array 规避 Embind 在转换 ClampedArray 时的指针越界错误 (`table index is out of bounds`)
-            const { default: jxlEncoderFactory } = await import("@jsquash/jxl/codec/enc/jxl_enc.js")
-            const wasmUrl = (await import("@jsquash/jxl/codec/enc/jxl_enc.wasm?url")).default
+            // -------------------------------------------------------------
+            // 1. 单例模式初始化 WASM (性能优化关键)
+            // -------------------------------------------------------------
+            if (!jxlModuleInstance) {
+                // 强制使用单线程版 jxl_enc.js（稳定、内存可扩展），避开多线程 SIMD
+                const { default: jxlEncoderFactory } = await import("@jsquash/jxl/codec/enc/jxl_enc.js")
+                const wasmUrl = (await import("@jsquash/jxl/codec/enc/jxl_enc.wasm?url")).default
 
-            const module = await jxlEncoderFactory({
-                locateFile: () => wasmUrl
-            })
-
-            const jxlImageData = {
-                width: imageData.width,
-                height: imageData.height,
-                data: new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.length)
+                jxlModuleInstance = await jxlEncoderFactory({
+                    locateFile: () => wasmUrl
+                })
             }
+            const module = jxlModuleInstance
 
-            // 动态调节 JXL 压缩力度 (effort) 以防止大图 OOM (Out of Memory)
-            // JXL effort 默认为 7 (Tortoise)，内存消耗极大，尺寸稍大便会撑爆 WASM 256MB 堆内存
-            // 策略：基于总像素数动态降级，保压缩成功率
+            // -------------------------------------------------------------
+            // 2. 数据准备
+            // -------------------------------------------------------------
+            // 显式转为 Uint8Array 规避 Embind 兼容性及越界错误
+            const inputBuffer = new Uint8Array(imageData.data.buffer, imageData.data.byteOffset, imageData.data.length)
+
+            // -------------------------------------------------------------
+            // 3. 动态 Effort 策略 (防止 OOM)
+            // -------------------------------------------------------------
             const totalPixels = imageData.width * imageData.height
-            let dynamicEffort = 7
-            if (totalPixels > 5000000) {
-                // 大于 500 万像素 (如 >2500x2000)，降级到 3 (Falcon: 极快，最省内存)
-                dynamicEffort = 3
-            } else if (totalPixels > 2000000) {
-                // 大于 200 万像素 (如 1920x1080 附近)，降级到 4 (Cheetah)
-                dynamicEffort = 4
-            } else if (totalPixels > 1000000) {
-                dynamicEffort = 5 // 大于 100 万像素
+            let dynamicEffort = 1 // 默认 Lightning (最安全)
+
+            /*
+                1	Lightning (闪电)	极速	极低	预览、实时处理
+                2	Thunder (雷声)	非常快	低	-
+                3	Falcon (猎鹰)	快	较低 (推荐)	大图的保守选项
+                4	Cheetah (猎豹)	较快	中等	中图如果内存够大可用
+                5	Hare (野兔)	中等	中高	小图常用
+                6	Wombat (袋熊)	慢	高	-
+                7	Squirrel (松鼠)	默认值	很高	jSquash 默认是这个，导致 OOM
+                8	Kitten (小猫)	非常慢	极高	离线归档
+                9	Tortoise (乌龟)	龟速	爆炸	极客专用
+            */
+            if (totalPixels < 250000) {
+                dynamicEffort = 5 // < 25万像素 (极小图)
+            } else if (totalPixels < 500000) {
+                dynamicEffort = 3 // < 50万像素
+            } else if (totalPixels < 1500000) {
+                dynamicEffort = 2 // < 150万像素
+            } else {
+                dynamicEffort = 1 // > 150万像素，Lightning (极简编码防崩溃)
             }
 
-            // jSquash JXL 默认参数集 (meta.js)
-            const defaultOptions = {
-                // JXL 的 effort (或 speed) 参数决定了它花多大力气去压缩。默认值通常是 7 (主要用于压榨体积)，但这极费内存。
-                // 3 = Falcon (快，内存少)
-                // 4 = Cheetah (较快)
-                // 7 = Tortoise (慢，内存极大)
+            // -------------------------------------------------------------
+            // 4. 计算最终 Quality (修复逻辑覆盖 Bug)
+            // -------------------------------------------------------------
+            const finalQuality = isLossless ? 100 : quality
+
+            // -------------------------------------------------------------
+            // 5. 组装参数
+            // -------------------------------------------------------------
+            const options = {
                 effort: dynamicEffort,
-                quality: lossless ? 100 : (quality >= 90 ? 90 : quality >= 80 ? 75 : 50),
+                quality: finalQuality,
                 progressive: false,
                 epf: -1,
-                lossyPalette: false, // 绝对不能开，开启后会强制使用 Modular 编码器进行有损压缩，对照片会导致体积暴增 200%+
+                lossyPalette: false, // 绝对不能开，否则会错误触发模块化有损编码导致体积暴增
                 decodingSpeedTier: 0,
                 photonNoiseIso: 0,
                 lossyModular: false, // 绝对不能开
             }
 
-            // 通过 Emscripten 暴露的 encode 函数进行压缩
-            const resultView = module.encode(
-                jxlImageData.data,
-                jxlImageData.width,
-                jxlImageData.height,
-                { ...defaultOptions, quality }
-            )
+            // -------------------------------------------------------------
+            // 6. 编码 (Try-Catch 捕获 WASM 内部崩溃)
+            // -------------------------------------------------------------
+            let resultView
+            try {
+                resultView = module.encode(
+                    inputBuffer,
+                    imageData.width,
+                    imageData.height,
+                    options // 直接传入 options，不再做展开覆盖
+                )
+            } catch (err) {
+                console.error("JXL WASM Critical Error:", err)
+                throw new Error(
+                    `JXL 编码内存溢出，请尝试缩小图片尺寸。\n\n` +
+                    `[WASM 堆栈]: ${err}\n\n` +
+                    `[引擎实际运作参数 (${imageData.width}x${imageData.height} px)]:\n` +
+                    JSON.stringify(options, null, 2)
+                )
+            }
 
             if (!resultView) throw new Error("JXL Encode failed inside WASM (returned null)")
 
-            // resultView 是在 WASM 内存空间 (Heap) 上的一段引用，它的 .buffer 等于整个 WASM Heap 的大小（可能高达百兆级别）
-            // 我们必须将其复制为极其干净的 Uint8Array 后再提交，防止导致 JS 内存泄漏或生成极大的 Blob 文件
+            // -------------------------------------------------------------
+            // 7. 结果拷贝与内存管理
+            // -------------------------------------------------------------
+            // 深度拷贝 WASM Heap 数据到独立 JS 内存空间
             const resultData = new Uint8Array(resultView)
 
-            // 提示垃圾回收机制尽快清理 WASM 的引用
-            module.free?.()
+            // 注意：不要再调用 module.free?.()
+            // 因为使用的是 jsquash 的 std::string 映射返回值，并在 JS 环境由 GC 管理。单例也不允许被释放。
 
             return resultData.buffer
         }
 
         case "heic": {
-            // jSquash 的 heif 模块目前主要用于解码。如果强行要求编码为 heic，由于大部分场景是转换，我们强制将其回退转换为 JPEG。
+            // heic2any 在前端大多用来解码，如果用户强行要编码输出 HEIC（极罕见），我们直接使用更通用的 JPEG 返回
             const { encode } = await import("@jsquash/jpeg")
             return encode(imageData, { quality: quality >= 90 ? 90 : quality >= 80 ? 80 : 60 })
         }

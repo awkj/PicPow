@@ -6,6 +6,7 @@ import {
     decodeImage,
     encodeImage,
     formatToMime,
+    MIME_TO_FORMAT,
     mimeToFormat,
     type SupportedFormat,
 } from "./engine-wasm"
@@ -13,12 +14,10 @@ import {
 export type { SupportedFormat }
 
 export interface CompressOptions {
-    /** 质量 0-100，默认 80 */
-    quality?: number
+    /** 质量 */
+    quality?: "high" | "balanced" | "low"
     /** 输出格式，默认与输入相同 */
     format?: SupportedFormat
-    /** 是否无损压缩 */
-    lossless?: boolean
 }
 
 /**
@@ -26,15 +25,14 @@ export interface CompressOptions {
  *
  * @param file     原始图片文件
  * @param quality  压缩质量 0-100（默认 80）
+ * @param quality  压缩质量 模式（默认 "balanced"）
  * @param format   输出格式（默认保持原格式）
- * @param lossless 是否无损模式（默认 false）
  * @returns        压缩后的 Blob
  */
 export async function compressFile(
     file: File,
-    quality: number = 80,
-    format?: SupportedFormat,
-    lossless: boolean = false
+    quality: "lossless" | "high" | "balanced" | "low" = "balanced",
+    format?: SupportedFormat
 ): Promise<Blob> {
     // 确定输出格式
     const inputFormat = mimeToFormat(file.type)
@@ -48,27 +46,16 @@ export async function compressFile(
     const imageData = await decodeImage(file)
 
     // 2. 编码为目标格式
-    const buffer = await encodeImage(imageData, outputFormat, quality, lossless)
+    const buffer = await encodeImage(imageData, outputFormat, quality)
 
     // 3. 包装为 Blob
     return new Blob([buffer], { type: formatToMime(outputFormat) })
 }
 
-/** 支持的格式列表 */
-export const SUPPORTED_INPUT_FORMATS = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-    "image/avif",
-    "image/jxl",
-    "image/heic",
-    "image/heif"
-] as const
+/** 支持的格式列表（推导自引擎 MIME 配置表） */
+export const SUPPORTED_INPUT_FORMATS = Object.keys(MIME_TO_FORMAT)
 
 /** 检查文件格式是否被支持 */
 export function isSupportedFile(file: File): boolean {
-    return SUPPORTED_INPUT_FORMATS.includes(
-        file.type as (typeof SUPPORTED_INPUT_FORMATS)[number]
-    )
+    return SUPPORTED_INPUT_FORMATS.includes(file.type.toLowerCase())
 }

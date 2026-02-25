@@ -1,5 +1,5 @@
 /**
- * App.tsx — PicPow 主应用入口
+ * App.tsx — Hamster 主应用入口
  */
 import { Button } from "@heroui/react"
 import { AnimatePresence, motion } from "framer-motion"
@@ -11,7 +11,7 @@ import { SettingsBar } from "./components/SettingsBar"
 import type { CompressedFile, CompressorSettings } from "./hooks/useCompressor"
 import { useCompressor } from "./hooks/useCompressor"
 
-const CONFIG_KEY = "picpow_preferences"
+const CONFIG_KEY = "Hamster_preferences"
 
 interface AppConfig {
   isDark: boolean
@@ -20,7 +20,7 @@ interface AppConfig {
 }
 
 function getInitialConfig(): AppConfig {
-  const defaultCfg: AppConfig = { isDark: true, showThumbnails: false, settings: { quality: 80, format: undefined } }
+  const defaultCfg: AppConfig = { isDark: true, showThumbnails: false, settings: { quality: "balanced", format: undefined } }
   if (typeof window === "undefined") return defaultCfg
   try {
     const saved = localStorage.getItem(CONFIG_KEY)
@@ -40,10 +40,10 @@ function App() {
     settings,
     setSettings,
     addFiles,
-    clearAll,
     downloadFile,
     downloadAll,
     retryFile,
+    resetSettings
   } = useCompressor(initialConfig.settings)
 
   const [previewFile, setPreviewFile] = useState<CompressedFile | null>(null)
@@ -92,7 +92,7 @@ function App() {
             </div>
             <div>
               <h1 className="text-slate-700 dark:text-slate-200 font-medium text-lg leading-none">
-                PicPow
+                Hamster
               </h1>
               <p className="text-slate-400 text-xs mt-0.5">图片压缩工具</p>
             </div>
@@ -152,11 +152,10 @@ function App() {
                   onChange={setSettings}
                   showThumbnails={showThumbnails}
                   onToggleThumbnails={() => setShowThumbnails(!showThumbnails)}
-                  fileCount={files.length}
                   doneCount={doneCount}
                   isCompressing={files.some(f => f.status === "compressing")}
                   onDownloadAll={downloadAll}
-                  onClearAll={clearAll}
+                  onResetSettings={resetSettings}
                 />
               </div>
             </motion.div>

@@ -4,10 +4,10 @@
  */
 import { useCallback, useRef, useState } from "react"
 import { isSupportedFile, type SupportedFormat } from "../core/compressor"
+import { mimeToFormat } from "../core/engine-wasm"
 import { compressionRatio, downloadBlob, formatFileSize, mimeToExtension } from "../utils/file-io"
 
 export type FileStatus = "pending" | "compressing" | "done" | "error"
-
 export interface CompressedFile {
     id: string
     /** 原始文件 */
@@ -34,15 +34,15 @@ export interface CompressedFile {
     compressedBlob: Blob | null
     /** 输出格式 */
     outputFormat: SupportedFormat
+    /** 本次压缩的配置，用于UI和失败后的记录展示 */
+    appliedSettings?: CompressorSettings
 }
 
 export interface CompressorSettings {
-    /** 输出质量 0-100 */
-    quality: number
+    /** 输出质量模式 */
+    quality: "lossless" | "high" | "balanced" | "low"
     /** 输出格式（undefined 表示保持原格式） */
     format?: SupportedFormat
-    /** 是否无损压缩 */
-    lossless: boolean
 }
 
 export interface UseCompressorReturn {
@@ -55,6 +55,7 @@ export interface UseCompressorReturn {
     downloadFile: (id: string) => Promise<void>
     downloadAll: () => Promise<void>
     retryFile: (id: string) => Promise<void>
+    resetSettings: () => void
 }
 
 let idCounter = 0
@@ -63,9 +64,8 @@ const genId = () => `file-${Date.now()}-${idCounter++}`
 export function useCompressor(initialSettings?: CompressorSettings): UseCompressorReturn {
     const [files, setFiles] = useState<CompressedFile[]>([])
     const [settings, setSettings] = useState<CompressorSettings>(initialSettings ?? {
-        quality: 80,
+        quality: "balanced",
         format: undefined,
-        lossless: false,
     })
 
     // 用 ref 缓存最新 settings，避免闭包过期值
@@ -76,7 +76,7 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
     const initWorker = () => {
         const w = new Worker(new URL("../core/worker.ts", import.meta.url), { type: "module" })
         w.onerror = (e) => {
-            console.error("[PicPow Worker Fatal Error]", e.message || e)
+            console.error("[Hamster Worker Fatal Error]", e.message || e)
             setFiles((prev) =>
                 prev.map((f) =>
                     f.status === "compressing"
@@ -144,8 +144,7 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
                 file,
                 options: {
                     quality: settingsRef.current.quality,
-                    format: settingsRef.current.format,
-                    lossless: settingsRef.current.lossless
+                    format: settingsRef.current.format
                 }
             })
         })
@@ -157,30 +156,27 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
             const supported = newFiles.filter(isSupportedFile)
             if (supported.length === 0) return
 
-            const entries: CompressedFile[] = supported.map((file) => ({
-                id: genId(),
-                file,
-                name: file.name,
-                originalSize: file.size,
-                compressedSize: null,
-                ratio: null,
-                time: null,
-                status: "pending",
-                originalUrl: URL.createObjectURL(file),
-                compressedUrl: null,
-                compressedBlob: null,
-                outputFormat:
-                    settingsRef.current.format ??
-                    ((file.type === "image/jpeg" || file.type === "image/jpg"
-                        ? "jpeg"
-                        : file.type === "image/png"
-                            ? "png"
-                            : file.type === "image/webp"
-                                ? "webp"
-                                : file.type === "image/avif"
-                                    ? "avif"
-                                    : "jxl") as SupportedFormat),
-            }))
+            const entries: CompressedFile[] = supported.map((file) => {
+                const inferredFormat = mimeToFormat(file.type)
+
+                return {
+                    id: genId(),
+                    file,
+                    name: file.name,
+                    originalSize: file.size,
+                    compressedSize: null,
+                    ratio: null,
+                    time: null,
+                    status: "pending",
+                    originalUrl: URL.createObjectURL(file),
+                    compressedUrl: null,
+                    compressedBlob: null,
+                    outputFormat:
+                        settingsRef.current.format ??
+                        (inferredFormat === "heic" ? "jpeg" : (inferredFormat || "jxl")),
+                    appliedSettings: { ...settingsRef.current }
+                }
+            })
 
             setFiles((prev) => [...prev, ...entries])
 
@@ -246,6 +242,14 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
         [files, processFile]
     )
 
+    /** 恢复默认设置 */
+    const resetSettings = useCallback(() => {
+        setSettings({
+            quality: "balanced",
+            format: undefined,
+        })
+    }, [])
+
     return {
         files,
         settings,
@@ -256,6 +260,7 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
         downloadFile,
         downloadAll,
         retryFile,
+        resetSettings,
     }
 }
 

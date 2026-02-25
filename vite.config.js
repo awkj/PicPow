@@ -76,11 +76,6 @@ export default defineConfig(function () { return __awaiter(void 0, void 0, void 
                     watch: {
                         ignored: ["**/src-tauri/**"],
                     },
-                    headers: {
-                        // 支持 SharedArrayBuffer（WASM 需要）
-                        "Cross-Origin-Embedder-Policy": "require-corp",
-                        "Cross-Origin-Opener-Policy": "same-origin",
-                    },
                 },
             })];
     });
