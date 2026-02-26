@@ -72,7 +72,7 @@ export function SettingsBar({
             {doneCount > 0 && (
               <button
                 onClick={onDownloadAll}
-                className="text-[13px] flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm hover:opacity-90 font-medium transition-opacity cursor-pointer flex-shrink-0"
+                className="text-[13px] flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900 shadow-sm hover:opacity-90 font-medium transition-opacity cursor-pointer shrink-0"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path

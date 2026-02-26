@@ -1,10 +1,6 @@
 @import "tailwindcss";
 @import "@heroui/styles";
 
-:root {
-  /* color-scheme is controlled by tailwind dark class */
-}
-
 * {
   box-sizing: border-box;
 }
