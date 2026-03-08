@@ -15,9 +15,11 @@ export type { SupportedFormat }
 
 export interface CompressOptions {
     /** 质量 */
-    quality?: "high" | "balanced" | "low"
+    quality?: "high" | "balanced" | "low" | "lossless"
     /** 输出格式，默认与输入相同 */
     format?: SupportedFormat
+    /** 编码引擎 */
+    engine?: "server" | "wasm"
 }
 
 /**
@@ -27,12 +29,14 @@ export interface CompressOptions {
  * @param quality  压缩质量 0-100（默认 80）
  * @param quality  压缩质量 模式（默认 "balanced"）
  * @param format   输出格式（默认保持原格式）
+ * @param engine   编码引擎（默认 "wasm"）
  * @returns        压缩后的 Blob
  */
 export async function compressFile(
     file: File,
     quality: "lossless" | "high" | "balanced" | "low" = "balanced",
-    format?: SupportedFormat
+    format?: SupportedFormat,
+    engine: "server" | "wasm" = "wasm"
 ): Promise<Blob> {
     // 确定输出格式
     const inputFormat = mimeToFormat(file.type)
@@ -46,7 +50,7 @@ export async function compressFile(
     const imageData = await decodeImage(file)
 
     // 2. 编码为目标格式
-    const buffer = await encodeImage(imageData, outputFormat, quality)
+    const buffer = await encodeImage(imageData, outputFormat, quality, engine)
 
     // 3. 包装为 Blob
     return new Blob([buffer], { type: formatToMime(outputFormat) })

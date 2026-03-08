@@ -3,7 +3,7 @@
  * 使用 @jsquash 系列库动态加载编解码器，在浏览器端实现高性能图片压缩
  */
 
-export type SupportedFormat = "jpeg" | "png" | "webp" | "avif" | "jxl" | "heic"
+export type SupportedFormat = "jpeg" | "png" | "webp" | "avif" | "jxl" | "heic" | "jpeg2000"
 
 import { COMPRESSION_CONFIG, type QualityLevel } from "./config"
 
@@ -18,6 +18,8 @@ export const MIME_TO_FORMAT: Record<string, SupportedFormat> = {
     "image/jxl": "jxl",
     "image/heic": "heic",
     "image/heif": "heic",
+    "image/jp2": "jpeg2000",
+    "image/jpx": "jpeg2000",
 }
 
 /** 映射内部格式标识到输出 MIME 类型 */
@@ -28,6 +30,7 @@ export const FORMAT_TO_MIME: Record<SupportedFormat, string> = {
     avif: "image/avif",
     jxl: "image/jxl",
     heic: "image/heic",
+    jpeg2000: "image/jp2",
 }
 
 /** 从 MIME 类型推断格式 */
@@ -133,7 +136,8 @@ let jxlModuleInstance: unknown = null
 export async function encodeImage(
     imageData: ImageData,
     format: SupportedFormat,
-    qualityMode: QualityLevel
+    qualityMode: QualityLevel,
+    heicMode: "server" | "wasm" = "server"
 ): Promise<ArrayBuffer> {
     // -------------------------------------------------------------
     // 解析 UI 语义化质量为具体数值与参数
@@ -142,6 +146,41 @@ export async function encodeImage(
     const quality = config?.value ?? 80
     const isLossless = config?.isLossless ?? false
 
+    // 服务器模式直接 Offload 给后端
+    if (heicMode === "server") {
+        const { encode } = await import("@jsquash/jpeg")
+        // 如果是无损请求（不管什么格式），给后端送 100 画质底图，否则 95 即可满足中高画质需求降低传输负担
+        const baseQuality = isLossless ? 100 : 95
+        const jpegBuffer = await encode(imageData, { quality: baseQuality })
+
+        const formData = new FormData()
+        const blob = new Blob([jpegBuffer], { type: "image/jpeg" })
+        formData.append("image", blob, "image.jpg")
+
+        // 告诉后端目标是什么格式
+        formData.append("format", format)
+        // 告诉后端目标质量
+        const targetQuality = isLossless ? 100 : quality
+        formData.append("quality", String(targetQuality))
+
+        if (isLossless) {
+            formData.append("lossless", "true")
+        }
+
+        const response = await fetch("/api/encode", {
+            method: "POST",
+            body: formData
+        })
+
+        if (!response.ok) {
+            const text = await response.text()
+            throw new Error(`后端 ${format} 转码失败: ${response.status} - ${text}`)
+        }
+
+        return response.arrayBuffer()
+    }
+
+    // 本地 WASM 模式
     switch (format) {
         case "jpeg": {
             const { encode } = await import("@jsquash/jpeg")
@@ -274,12 +313,20 @@ export async function encodeImage(
         }
 
         case "heic": {
-            // heic2any 在前端大多用来解码，如果用户强行要编码输出 HEIC（极罕见），我们直接使用更通用的 JPEG 返回
+            // WASM 模式降级
+            const currentQuality = isLossless ? 100 : quality
             const { encode } = await import("@jsquash/jpeg")
-            return encode(imageData, { quality: quality >= 90 ? 90 : quality >= 80 ? 80 : 60 })
+            return encode(imageData, { quality: currentQuality })
+        }
+
+        case "jpeg2000": {
+            // WASM 模式降级
+            const currentQuality = isLossless ? 100 : quality
+            const { encode } = await import("@jsquash/jpeg")
+            return encode(imageData, { quality: currentQuality })
         }
 
         default:
-            throw new Error(`不支持的编码格式: ${format}`)
+            throw new Error(`本地引擎不支持的编码格式或未识别: ${format}`)
     }
 }

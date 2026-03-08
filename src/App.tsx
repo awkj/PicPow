@@ -23,7 +23,7 @@ function getInitialConfig(): AppConfig {
   const defaultCfg: AppConfig = {
     isDark: true,
     showThumbnails: false,
-    settings: { quality: "balanced", format: undefined },
+    settings: { quality: "balanced", format: undefined, engine: "wasm" },
   }
   if (typeof window === "undefined") return defaultCfg
   try {

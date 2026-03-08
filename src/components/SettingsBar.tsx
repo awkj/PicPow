@@ -17,12 +17,19 @@ interface SettingsBarProps {
   onResetSettings: () => void
 }
 
-const TARGET_FORMATS: { label: string; value: SupportedFormat }[] = [
+const TARGET_FORMATS_WASM: { label: string; value: SupportedFormat }[] = [
   { label: "JPEG", value: "jpeg" },
   { label: "PNG", value: "png" },
   { label: "WebP", value: "webp" },
   { label: "AVIF", value: "avif" },
   { label: "JXL", value: "jxl" },
+]
+
+const TARGET_FORMATS_SERVER: { label: string; value: SupportedFormat }[] = [
+  { label: "HEIC", value: "heic" },
+  { label: "AVIF", value: "avif" },
+  { label: "JPEG", value: "jpeg" },
+  { label: "JPEG2000", value: "jpeg2000" },
 ]
 
 export function SettingsBar({
@@ -36,10 +43,14 @@ export function SettingsBar({
   onResetSettings,
 }: SettingsBarProps) {
   const currentFormat = settings.format ?? "auto"
-  const effectiveFormat = currentFormat === "heic" ? "jpeg" : currentFormat
+  const currentEngine = settings.engine ?? "wasm"
+  const availableFormats = currentEngine === "server" ? TARGET_FORMATS_SERVER : TARGET_FORMATS_WASM
+
+  // 如果当前引擎不再支持之前选择的格式，需静默降级以避免渲染崩溃（例如从 wasm 切到 server，且旧格式为 webp 时）
+  const isFormatSupportedByEngine = currentFormat === "auto" || availableFormats.some(f => f.value === currentFormat)
+  const effectiveFormat = isFormatSupportedByEngine ? currentFormat : (currentEngine === "server" ? "heic" : "jpeg")
 
   // 获取当前格式支持的质量配置选项
-  // 强制转换为受支持的格式键，避免 auto 时取不到
   const actualConfigKey = effectiveFormat === "auto" ? "jpeg" : effectiveFormat
   const currentConfig = COMPRESSION_CONFIG[actualConfigKey]
 
@@ -104,6 +115,43 @@ export function SettingsBar({
         </div>
       </div>
       <div className="w-full h-px bg-slate-200/60 dark:bg-white/5" /> {/* 行分割线 */}
+      {/* ── 新增: 编码引擎选择 ── */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 w-full">
+        <div className="flex items-center gap-3 sm:gap-4 shrink-0">
+          <span className="text-sm font-medium text-slate-700 dark:text-slate-300 w-16 shrink-0">编码引擎</span>
+          <div className="w-px h-4 bg-slate-200 dark:bg-white/10 shrink-0 hidden sm:block" />
+        </div>
+        <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 p-1 bg-slate-100/80 dark:bg-white/5 rounded-2xl w-full sm:w-auto sm:rounded-full">
+          <button
+            disabled={isCompressing}
+            onClick={() => {
+              const nextEngine = "wasm"
+              onChange({ ...settings, engine: nextEngine, format: undefined }) // 切换引擎重置格式
+            }}
+            className={`flex-1 sm:flex-none px-4 py-1.5 text-sm rounded-xl sm:rounded-full transition-all whitespace-nowrap border ${currentEngine === "wasm"
+              ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
+              : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            浏览器处理 (WASM)
+          </button>
+          <button
+            disabled={isCompressing}
+            onClick={() => {
+              const nextEngine = "server"
+              onChange({ ...settings, engine: nextEngine, format: undefined })
+            }}
+            className={`flex-1 sm:flex-none px-4 py-1.5 text-sm rounded-xl sm:rounded-full transition-all whitespace-nowrap border ${currentEngine === "server"
+              ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
+              : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            服务端处理 (Server)
+          </button>
+        </div>
+      </div>
+      <div className="w-full h-px bg-slate-200/60 dark:bg-white/5" /> {/* 行分割线 */}
+
       {/* ── 第 2 行：输出格式 ── */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 w-full">
         <div className="flex items-center gap-3 sm:gap-4 shrink-0">
@@ -116,18 +164,17 @@ export function SettingsBar({
           <button
             disabled={isCompressing}
             onClick={() => onChange({ ...settings, format: undefined })}
-            className={`px-4 py-1.5 text-sm rounded-full transition-all border whitespace-nowrap ${
-              effectiveFormat === "auto"
-                ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
-                : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
-            } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
+            className={`px-4 py-1.5 text-sm rounded-full transition-all border whitespace-nowrap ${effectiveFormat === "auto"
+              ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
+              : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
+              } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
           >
             保持原格式
           </button>
 
           {/* 具体格式区块 */}
-          <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 p-1 bg-slate-100/80 dark:bg-white/5 rounded-2xl sm:rounded-full w-full sm:w-auto">
-            {TARGET_FORMATS.map((opt) => {
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-1 p-1 bg-slate-100/80 dark:bg-white/5 rounded-2xl w-full sm:w-auto sm:rounded-full">
+            {availableFormats.map((opt) => {
               const isSelected = effectiveFormat === opt.value
               return (
                 <button
@@ -137,7 +184,7 @@ export function SettingsBar({
                     // 切换格式时，检查当前所选画质选项在新格式下是否支持
                     let nextQuality = settings.quality
                     const newConfig = COMPRESSION_CONFIG[opt.value]
-                    if (nextQuality === "lossless" && !newConfig.lossless.supported) {
+                    if (nextQuality === "lossless" && newConfig && !newConfig.lossless.supported) {
                       nextQuality = "high" // 如果不支持无损(如JPEG)，回退到高质量
                     }
 
@@ -147,11 +194,10 @@ export function SettingsBar({
                       quality: nextQuality,
                     })
                   }}
-                  className={`px-4 py-1.5 text-sm rounded-full transition-all whitespace-nowrap border ${
-                    isSelected
-                      ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
-                      : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-                  } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
+                  className={`flex-1 sm:flex-none px-4 py-1.5 text-sm rounded-xl sm:rounded-full transition-all whitespace-nowrap border ${isSelected
+                    ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
+                    : "bg-transparent border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   {opt.label}
                 </button>
@@ -161,6 +207,7 @@ export function SettingsBar({
         </div>
       </div>
       <div className="w-full h-px bg-slate-200/60 dark:bg-white/5" /> {/* 行分割线 */}
+
       {/* ── 第 3 行：压缩设置 ── */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:gap-4 w-full">
         <div className="flex items-center gap-3 sm:gap-4 shrink-0">
@@ -171,7 +218,7 @@ export function SettingsBar({
         </div>
 
         <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 w-full">
-          <div className="flex flex-wrap sm:flex-nowrap items-center p-1 bg-slate-100/80 dark:bg-white/5 rounded-2xl sm:rounded-lg w-full sm:w-auto">
+          <div className="flex w-full sm:w-auto flex-wrap sm:flex-nowrap p-1 gap-1 bg-slate-100/80 dark:bg-white/5 rounded-xl sm:rounded-lg">
             {qualityLevels.map((level) => {
               const opt = currentConfig[level]
               if (!opt.supported) return null // 假如该格式不支持该档位（比如 JPEG 无损），直接不渲染或置灰渲染
@@ -182,11 +229,10 @@ export function SettingsBar({
                   key={level}
                   disabled={isCompressing}
                   onClick={() => onChange({ ...settings, quality: level })}
-                  className={`px-5 py-1.5 rounded-md text-sm transition-all whitespace-nowrap border ${
-                    isActive
-                      ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
-                      : "bg-transparent border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-normal"
-                  } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
+                  className={`flex-1 sm:flex-none px-5 py-1.5 rounded-lg sm:rounded-md text-sm transition-all whitespace-nowrap border ${isActive
+                    ? "bg-white text-slate-800 shadow-sm border-slate-200/60 dark:bg-slate-700 dark:text-white dark:border-slate-600 font-medium"
+                    : "bg-transparent border-transparent text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 font-normal"
+                    } ${isCompressing ? "opacity-50 cursor-not-allowed" : ""}`}
                 >
                   {opt.label}
                 </button>

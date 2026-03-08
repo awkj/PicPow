@@ -4,6 +4,8 @@
 import { Button, Modal } from "@heroui/react"
 import { AnimatePresence, motion } from "framer-motion"
 import { useState } from "react"
+import type { SupportedFormat } from "../core/compressor"
+import { COMPRESSION_CONFIG } from "../core/config"
 import type { CompressedFile } from "../hooks/useCompressor"
 import { formatFileSize } from "../hooks/useCompressor"
 
@@ -72,8 +74,14 @@ export function FileList({ files, showThumbnails, onDownload, onRetry, onPreview
                       <div className="flex items-center gap-2">
                         <p className="text-sm font-normal text-slate-700 dark:text-slate-200 truncate">{file.name}</p>
                       </div>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 uppercase mt-0.5">
-                        {file.outputFormat}
+                      <p className="flex items-center gap-1.5 text-[10px] text-slate-400 dark:text-slate-500 uppercase mt-0.5 truncate">
+                        <span>{file.outputFormat}</span>
+                        {file.appliedSettings?.quality && file.outputFormat && COMPRESSION_CONFIG[file.outputFormat as SupportedFormat]?.[file.appliedSettings.quality] && (
+                          <>
+                            <span className="opacity-50">/</span>
+                            <span className="text-slate-500 dark:text-slate-400">{COMPRESSION_CONFIG[file.outputFormat as SupportedFormat][file.appliedSettings.quality].label}</span>
+                          </>
+                        )}
                       </p>
                     </div>
                   </div>

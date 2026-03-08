@@ -4,7 +4,7 @@ self.onmessage = async (e: MessageEvent<{ id: string; file: File; options: Compr
     const { id, file, options } = e.data
     try {
         const start = performance.now()
-        const blob = await compressFile(file, options.quality, options.format)
+        const blob = await compressFile(file, options.quality, options.format, options.engine)
         const time = performance.now() - start
         self.postMessage({ id, success: true, blob, time })
     } catch (err) {

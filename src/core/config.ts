@@ -153,27 +153,56 @@ export const COMPRESSION_CONFIG: Record<SupportedFormat, Record<QualityLevel, Le
             supported: true
         },
     },
-    // HEIC is decode-only for now, but to satisfy types
     heic: {
         lossless: {
             label: "无损",
-            description: "-",
-            supported: false
+            description: "原生 -L 无损编码 (仅限后端)",
+            isLossless: true,
+            supported: true
         },
         high: {
             label: "高质量",
-            description: "-",
-            supported: false
+            description: "Quality: 90",
+            value: 90,
+            supported: true
         },
         balanced: {
             label: "平衡",
-            description: "-",
-            supported: false
+            description: "Quality: 80",
+            value: 80,
+            supported: true
         },
         low: {
             label: "高压缩比",
-            description: "-",
-            supported: false
+            description: "Quality: 60",
+            value: 60,
+            supported: true
+        },
+    },
+    jpeg2000: {
+        lossless: {
+            label: "无损",
+            description: "JPEG2000 无损",
+            isLossless: true,
+            supported: true
+        },
+        high: {
+            label: "高质量",
+            description: "Quality: 90",
+            value: 90,
+            supported: true
+        },
+        balanced: {
+            label: "平衡",
+            description: "Quality: 80",
+            value: 80,
+            supported: true
+        },
+        low: {
+            label: "高压缩比",
+            description: "Quality: 60",
+            value: 60,
+            supported: true
         },
     }
 }

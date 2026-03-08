@@ -43,6 +43,8 @@ export interface CompressorSettings {
     quality: "lossless" | "high" | "balanced" | "low"
     /** 输出格式（undefined 表示保持原格式） */
     format?: SupportedFormat
+    /** 编码引擎 (决定可用格式与处理流向) */
+    engine: "wasm" | "server"
 }
 
 export interface UseCompressorReturn {
@@ -66,6 +68,7 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
     const [settings, setSettings] = useState<CompressorSettings>(initialSettings ?? {
         quality: "balanced",
         format: undefined,
+        engine: "wasm",
     })
 
     // 用 ref 缓存最新 settings，避免闭包过期值
@@ -168,7 +171,8 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
                 file,
                 options: {
                     quality: settingsRef.current.quality,
-                    format: settingsRef.current.format
+                    format: settingsRef.current.format,
+                    engine: settingsRef.current.engine
                 }
             })
         })
@@ -271,6 +275,7 @@ export function useCompressor(initialSettings?: CompressorSettings): UseCompress
         setSettings({
             quality: "balanced",
             format: undefined,
+            engine: "wasm",
         })
     }, [])
 

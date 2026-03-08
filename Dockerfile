@@ -26,21 +26,49 @@ COPY . .
 # 6. 打包
 RUN pnpm build
 
-# --- 第二阶段：运行 (Caddy) ---
+# --- 第二阶段：构建 Go 后端 ---
+FROM golang:1.24-alpine AS go-builder
+
+WORKDIR /server
+COPY server/go.mod ./
+# (由于目前没有额外的依赖，不需要 go mod download)
+
+COPY server/main.go ./
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o picman-server main.go
+
+# --- 第三阶段：运行环境 ---
 FROM caddy:alpine
 
+# 安装 libheif-tools，使得 heif-enc 可用
+RUN apk add --no-cache libheif-tools
+
+WORKDIR /app
+
+# 从 Node.js 构建阶段复制前端产物
 COPY --from=builder /app/dist /usr/share/caddy
 
-# 使用 cat <<EOF 写法通常比 echo 更易读（这也是个小优化）
+# 从 Go 构建阶段复制二进制后端
+COPY --from=go-builder /server/picman-server /app/picman-server
+
+# 配置 Caddy
 RUN cat <<EOF > /etc/caddy/Caddyfile
 :80 {
     root * /usr/share/caddy
     encode gzip
-    file_server
-    try_files {path} /index.html
+    
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    handle {
+        try_files {path} /index.html
+        file_server
+    }
 }
 EOF
 
+ENV PORT=8080
 EXPOSE 80
 
-CMD ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+# 启动 Go 服务并在后台运行，然后前台启动 Caddy
+CMD /app/picman-server & caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
